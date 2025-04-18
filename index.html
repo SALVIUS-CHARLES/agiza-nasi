@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>USSD Simulator</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background-color: gray;
+      margin: 0;
+    }
+
+    .ussd-screen {
+      width: 300px;
+      height: 520px;
+      background: black;
+      color: black;
+      padding: 20px;
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.5);
+    }
+
+    .ussd-display {
+      flex: 1;
+      overflow-y: auto;
+      text-align: left;
+      padding: 20px;
+      background: white;
+      border-radius: 5px;
+      font-size: 16px;
+      white-space: pre-wrap;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .ussd-buttons {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 5px;
+      margin-top: 15px;
+    }
+
+    .ussd-button {
+      padding: 10px;
+      background: blueviolet;
+      color: white;
+      border: none;
+      cursor: pointer;
+      text-align: center;
+      font-size: 16px;
+      border-radius: 5px;
+      transition: background 0.2s;
+    }
+
+    .ussd-button:active {
+      background: #7633a8;
+      transform: scale(0.97);
+    }
+
+    .ussd-controls {
+      display: flex;
+      justify-content: space-between;
+      margin: 10px 0;
+    }
+
+    .ussd-controls .ussd-button {
+      width: 23%;
+    }
+
+    .display-content {
+      flex: 1;
+    }
+
+    .input-line {
+      border-top: 1px solid #ddd;
+      padding-top: 10px;
+      margin-top: 10px;
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+    }
+
+    .input-cursor {
+      display: inline-block;
+      width: 2px;
+      height: 18px;
+      background-color: #333;
+      margin-left: 2px;
+      animation: blink 1s infinite;
+    }
+
+    .status-bar {
+      background: #222;
+      color: white;
+      padding: 5px;
+      text-align: center;
+      border-radius: 5px 5px 0 0;
+      font-size: 12px;
+    }
+
+    .key-info {
+      color: #666;
+      font-size: 12px;
+      text-align: center;
+      margin-top: 5px;
+    }
+
+    @keyframes blink {
+      0%,
+      49% {
+        opacity: 1;
+      }
+
+      50%,
+      100% {
+        opacity: 0;
+      }
+    }
+
+    .key-pressed {
+      background-color: #5728a3;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="ussd-screen">
+    <div class="status-bar" id="statusBar">USSD Service</div>
+    <div class="ussd-display">
+      <div class="display-content" id="displayContent">
+        Enter *# to start:
+      </div>
+      <div class="input-line" id="inputLine">
+        <span id="currentInput"></span><span class="input-cursor" id="cursor"></span>
+      </div>
+    </div>
+    <div class="key-info" id="keyInfo">Current key: None</div>
+    <div class="ussd-controls">
+      <button class="ussd-button" onclick="sendInput()" id="sendButton">Send</button>
+      <button class="ussd-button" onclick="goBack()" id="backButton">Back</button>
+      <button class="ussd-button" onclick="deleteInput()" id="deleteButton">Del</button>
+      <button class="ussd-button" onclick="cycleInput(' ')" id="spaceButton">Space</button>
+    </div>
+    <div class="ussd-buttons">
+      <button class="ussd-button" onclick="cycleInput('1')" id="btn1">1<br />. , !</button>
+      <button class="ussd-button" onclick="cycleInput('2')" id="btn2">2<br />A B C</button>
+      <button class="ussd-button" onclick="cycleInput('3')" id="btn3">3<br />D E F</button>
+      <button class="ussd-button" onclick="cycleInput('4')" id="btn4">4<br />G H I</button>
+      <button class="ussd-button" onclick="cycleInput('5')" id="btn5">5<br />J K L</button>
+      <button class="ussd-button" onclick="cycleInput('6')" id="btn6">6<br />M N O</button>
+      <button class="ussd-button" onclick="cycleInput('7')" id="btn7">7<br />P Q R S</button>
+      <button class="ussd-button" onclick="cycleInput('8')" id="btn8">8<br />T U V</button>
+      <button class="ussd-button" onclick="cycleInput('9')" id="btn9">9<br />W X Y Z</button>
+      <button class="ussd-button" onclick="cycleInput('*')" id="btnStar">*</button>
+      <button class="ussd-button" onclick="cycleInput('0')" id="btn0">0<br />+</button>
+      <button class="ussd-button" onclick="cycleInput('#')" id="btnHash">#</button>
+    </div>
+  </div>
+
+  <script>
+    // Common variables
+    let userRole = null; // "customer" or "retailer"
+    let ussdInput = "";
+    let currentInput = "";
+    let lastKey = "";
+    let lastKeyPressTime = 0;
+    let lastKeyIndex = 0;
+    let cursorVisible = true;
+    let currentStep = "start";
+    let cycleTimer = null;
+    let currentRetailerId = null; // Track the current retailer ID
+
+    // Customer variables
+    let retailerList = [];
+    let productList = [];
+    let orderDetails = {
+      name: "",
+      phoneNumber: "",
+      location: "",
+      product: null,
+      retailer: null
+    };
+
+    // Retailer variables
+    let retailerDetails = {
+      name: "",
+      phoneNumber: "",
+      location: "",
+      productName: "",
+      productPrice: "",
+      selectedProduct: null,
+      newProductName: "",
+      newProductPrice: ""
+    };
+    let productAction = "";
+    let products = [];
+
+    const keyMapping = {
+      1: ["1", ".", ",", "!"],
+      2: ["2", "A", "B", "C"],
+      3: ["3", "D", "E", "F"],
+      4: ["4", "G", "H", "I"],
+      5: ["5", "J", "K", "L"],
+      6: ["6", "M", "N", "O"],
+      7: ["7", "P", "Q", "R", "S"],
+      8: ["8", "T", "U", "V"],
+      9: ["9", "W", "X", "Y", "Z"],
+      0: ["0", "+"],
+    };
+
+    // Initialize the UI
+    function updateDisplay() {
+      // For the start screen, we want to show the instruction and the current input separately
+      if (currentStep === "start") {
+        document.getElementById("displayContent").innerText = "Enter *# to start";
+        document.getElementById("currentInput").innerText = currentInput;
+      } else {
+        document.getElementById("displayContent").innerText = ussdInput;
+        document.getElementById("currentInput").innerText = currentInput;
+      }
+
+      // Update status bar based on role
+      if (userRole === "customer") {
+        document.getElementById("statusBar").innerText = "USSD Service - Customer Mode";
+      } else if (userRole === "retailer") {
+        document.getElementById("statusBar").innerText = "USSD Service - Retailer Mode";
+      } else {
+        document.getElementById("statusBar").innerText = "USSD Service";
+      }
+
+      // Show/hide input line based on context
+      if ((currentStep === "selectRole" && !currentInput) ||
+        (currentStep === "selectRetailer" && !currentInput) ||
+        (currentStep === "selectProduct" && !currentInput)) {
+        document.getElementById("inputLine").style.display = "none";
+      } else {
+        document.getElementById("inputLine").style.display = "flex";
+      }
+    }
+
+    // Input handling functions with visual cues
+    function cycleInput(value) {
+      const now = new Date().getTime();
+      const btnId = value === '*' ? 'btnStar' : value === '#' ? 'btnHash' : value === '0' ? 'btn0' : `btn${value}`;
+      const button = document.getElementById(btnId);
+
+      // Add visual feedback
+      highlightButton(button);
+
+      if (keyMapping[value]) {
+        if (value === lastKey && now - lastKeyPressTime < 1000) {
+          // Clear previous timer if exists
+          if (cycleTimer) clearTimeout(cycleTimer);
+
+          lastKeyIndex = (lastKeyIndex + 1) % keyMapping[value].length;
+          currentInput = currentInput.slice(0, -1) + keyMapping[value][lastKeyIndex];
+
+          // Show current character cycling
+          document.getElementById("keyInfo").textContent = `Current key: ${value} - ${keyMapping[value][lastKeyIndex]}`;
+        } else {
+          lastKeyIndex = 0;
+          currentInput += keyMapping[value][lastKeyIndex];
+          document.getElementById("keyInfo").textContent = `Current key: ${value} - ${keyMapping[value][lastKeyIndex]}`;
+        }
+
+        // Set a timer to finalize the character after 1 second of inactivity
+        cycleTimer = setTimeout(() => {
+          lastKey = "";
+          document.getElementById("keyInfo").textContent = "Current key: None";
+        }, 1000);
+
+        lastKey = value;
+        lastKeyPressTime = now;
+      } else {
+        currentInput += value;
+        document.getElementById("keyInfo").textContent = `Current key: ${value}`;
+      }
+
+      updateDisplay();
+    }
+
+    function highlightButton(button) {
+      button.classList.add("key-pressed");
+      setTimeout(() => {
+        button.classList.remove("key-pressed");
+      }, 150);
+    }
+
+    function deleteInput() {
+      highlightButton(document.getElementById("deleteButton"));
+      currentInput = currentInput.slice(0, -1);
+      updateDisplay();
+    }
+
+    function goBack() {
+      highlightButton(document.getElementById("backButton"));
+      if (userRole === "customer") {
+        customerGoBack();
+      } else if (userRole === "retailer") {
+        retailerGoBack();
+      } else {
+        ussdInput = "Enter *# to start";
+        currentInput = "";
+        currentStep = "start";
+        userRole = null;
+      }
+      updateDisplay();
+    }
+
+    function customerGoBack() {
+      if (currentStep === "selectRetailer" || currentStep === "selectProduct") {
+        currentStep = "start";
+        ussdInput = "Enter USSD Code (e.g., *#)";
+        currentInput = "";
+        userRole = null;
+      } else if (currentStep === "enterName") {
+        currentStep = "selectProduct";
+        currentInput = "";
+        fetchProducts();
+      } else if (currentStep === "enterPhoneNumber") {
+        currentStep = "enterName";
+        currentInput = "";
+        ussdInput = "Enter your name:";
+      } else if (currentStep === "enterLocation") {
+        currentStep = "enterPhoneNumber";
+        currentInput = "";
+        ussdInput = "Enter your phone number:";
+      } else if (currentStep === "confirmOrder") {
+        currentStep = "enterLocation";
+        currentInput = "";
+        ussdInput = "Enter your location:";
+      } else {
+        currentInput = "";
+      }
+    }
+
+    function retailerGoBack() {
+      if (currentStep === "retailerMenu") {
+        currentStep = "start";
+        ussdInput = "Enter *# to start";
+        currentInput = "";
+        userRole = null;
+        currentRetailerId = null; // Clear retailer ID when going back to start
+      } else if (currentStep === "enterRetailerName") {
+        currentStep = "retailerMenu";
+        currentInput = "";
+        ussdInput = "Retailer Menu:\n1. Register\n2. Manage Products";
+      } else if (currentStep === "enterRetailerPhone") {
+        currentStep = "enterRetailerName";
+        currentInput = "";
+        ussdInput = "Enter your name:";
+      } else if (currentStep === "enterRetailerLocation") {
+        currentStep = "enterRetailerPhone";
+        currentInput = "";
+        ussdInput = "Enter your phone number:";
+      } else if (currentStep === "productMenu") {
+        currentStep = "retailerMenu";
+        currentInput = "";
+        ussdInput = "Retailer Menu:\n1. Register\n2. Manage Products";
+      } else if (currentStep === "addProductName") {
+        currentStep = "productMenu";
+        currentInput = "";
+        showProductMenu();
+      } else if (currentStep === "addProductPrice") {
+        currentStep = "addProductName";
+        currentInput = "";
+        ussdInput = "Enter product name:";
+      } else {
+        currentInput = "";
+      }
+    }
+
+    function sendInput() {
+      highlightButton(document.getElementById("sendButton"));
+      let userInputText = currentInput.trim();
+
+      // Common logic for both roles
+      if (currentStep === "start") {
+        if (userInputText === "*#") {
+          ussdInput = "Select option:\n1. Customer\n2. Retailer";
+          currentStep = "selectRole";
+          currentInput = "";
+        } else {
+          ussdInput = "Invalid USSD code. Enter *# to start.";
+          currentInput = "";
+        }
+        updateDisplay();
+        return;
+      }
+
+      if (currentStep === "selectRole") {
+        if (userInputText === "1") {
+          userRole = "customer";
+          currentInput = "";
+          fetchRetailers();
+        } else if (userInputText === "2") {
+          userRole = "retailer";
+          currentStep = "retailerMenu";
+          currentInput = "";
+          ussdInput = "Retailer Menu:\n1. Register\n2. Manage Products";
+        } else {
+          ussdInput = "Invalid selection. Enter 1 or 2.";
+          currentInput = "";
+        }
+        updateDisplay();
+        return;
+      }
+
+      // Route to appropriate handler based on role
+      if (userRole === "customer") {
+        handleCustomerInput(userInputText);
+      } else if (userRole === "retailer") {
+        handleRetailerInput(userInputText);
+      }
+
+      // Reset current input after handling
+      currentInput = "";
+      updateDisplay();
+    }
+
+    // Customer functionality
+    function handleCustomerInput(userInput) {
+      switch (currentStep) {
+        case "selectRetailer":
+          const retailerIndex = parseInt(userInput) - 1;
+          if (!isNaN(retailerIndex) && retailerIndex >= 0 && retailerIndex < retailerList.length) {
+            orderDetails.retailer = retailerList[retailerIndex];
+            currentStep = "selectProduct";
+            fetchProducts();
+          } else {
+            ussdInput = "Invalid selection. Please try again.";
+          }
+          break;
+
+        case "selectProduct":
+          const productIndex = parseInt(userInput) - 1;
+          if (!isNaN(productIndex) && productIndex >= 0 && productIndex < productList.length) {
+            orderDetails.product = productList[productIndex];
+            currentStep = "enterName";
+            ussdInput = "Enter your name:";
+          } else {
+            ussdInput = "Invalid selection. Please try again.";
+          }
+          break;
+
+        case "enterName":
+          orderDetails.name = userInput;
+          currentStep = "enterPhoneNumber";
+          ussdInput = "Enter your phone number:";
+          break;
+
+        case "enterPhoneNumber":
+          orderDetails.phoneNumber = userInput;
+          currentStep = "enterLocation";
+          ussdInput = "Enter your location:";
+          break;
+
+        case "enterLocation":
+          orderDetails.location = userInput;
+          currentStep = "confirmOrder";
+          showOrderConfirmation();
+          break;
+
+        case "confirmOrder":
+          if (userInput.toLowerCase() === "yes") {
+            placeOrder();
+          } else if (userInput.toLowerCase() === "no") {
+            resetCustomer();
+            ussdInput = "Order canceled. Enter *# to start again.";
+          } else {
+            ussdInput = "Invalid input. Enter 'Yes' to confirm or 'No' to cancel.";
+          }
+          break;
+
+        default:
+          ussdInput = "Invalid state. Please restart.";
+          break;
+      }
+    }
+
+    function fetchRetailers() {
+      fetch("http://localhost:3001/api/retailers")
+        .then(response => response.json())
+        .then(data => {
+          retailerList = data;
+          ussdInput = "Select a retailer:\n";
+          retailerList.forEach((retailer, index) => {
+            ussdInput += `${index + 1}. ${retailer.name} (📞 ${retailer["phone_number"]})\n`;
+          });
+          currentStep = "selectRetailer";
+          updateDisplay();
+        })
+        .catch(err => {
+          ussdInput = "Error fetching retailers";
+          updateDisplay();
+          console.error(err);
+        });
+    }
+
+    function fetchProducts() {
+      const retailerId = orderDetails.retailer.retailer_id;
+      fetch(`http://localhost:3001/api/products/${retailerId}`)
+        .then(response => response.json())
+        .then(data => {
+          productList = data;
+          ussdInput = "Select a product:\n";
+          productList.forEach((product, index) => {
+            ussdInput += `${index + 1}. ${product.product_name} - TSH ${product.product_cost}\n`;
+          });
+          updateDisplay();
+        })
+        .catch(err => {
+          ussdInput = "Error fetching products";
+          updateDisplay();
+          console.error(err);
+        });
+    }
+
+    function showOrderConfirmation() {
+      ussdInput = `Confirm order:\n
+Name: ${orderDetails.name}
+Phone: ${orderDetails.phoneNumber}
+Location: ${orderDetails.location}
+Product: ${orderDetails.product.product_name} - TSH ${orderDetails.product.product_cost}\n
+Enter "Yes" to confirm or "No" to cancel.`;
+      updateDisplay();
+    }
+
+    function placeOrder() {
+      fetch("http://localhost:3001/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(orderDetails),
+      })
+        .then(response => response.json())
+        .then(data => {
+          ussdInput = `Order placed successfully! Order ID: ${data.orderId}`;
+          updateDisplay();
+          resetCustomer();
+        })
+        .catch(err => {
+          ussdInput = "Error placing order.";
+          updateDisplay();
+          console.error(err);
+        });
+    }
+
+    function resetCustomer() {
+      currentStep = "start";
+      userRole = null;
+      currentInput = "";
+      orderDetails = {
+        name: "",
+        phoneNumber: "",
+        location: "",
+        product: null,
+        retailer: null
+      };
+    }
+
+    // Retailer functionality
+    function handleRetailerInput(userInput) {
+      switch (currentStep) {
+        case "retailerMenu":
+          if (userInput === "1") {
+            currentStep = "enterRetailerName";
+            ussdInput = "Enter your name:";
+          } else if (userInput === "2") {
+            currentStep = "productMenu";
+            showProductMenu();
+          } else {
+            ussdInput = "Invalid selection. Enter 1 or 2.";
+          }
+          break;
+
+        case "enterRetailerName":
+          retailerDetails.name = userInput;
+          currentStep = "enterRetailerPhone";
+          ussdInput = "Enter your phone number:";
+          break;
+
+        case "enterRetailerPhone":
+          retailerDetails.phoneNumber = userInput;
+          currentStep = "enterRetailerLocation";
+          ussdInput = "Enter your location:";
+          break;
+
+        case "enterRetailerLocation":
+          retailerDetails.location = userInput;
+          registerRetailer();
+          break;
+
+        case "productMenu":
+          if (userInput === "1") {
+            currentStep = "addProductName";
+            productAction = "add";
+            ussdInput = "Enter product name:";
+          } else if (userInput === "2") {
+            currentStep = "listProducts";
+            fetchRetailerProducts();
+          } else {
+            ussdInput = "Invalid selection. Enter 1 or 2.";
+          }
+          break;
+
+        case "addProductName":
+          retailerDetails.productName = userInput;
+          currentStep = "addProductPrice";
+          ussdInput = "Enter product price (TSH):";
+          break;
+
+        case "addProductPrice":
+          retailerDetails.productPrice = userInput;
+          addProduct();
+          break;
+
+        case "listProducts":
+          const productIndex = parseInt(userInput) - 1;
+          if (!isNaN(productIndex) && productIndex >= 0 && productIndex < products.length) {
+            currentStep = "productAction";
+            retailerDetails.selectedProduct = products[productIndex];
+            ussdInput = `Product: ${products[productIndex].product_name}\n1. Edit\n2. Delete\n3. Back`;
+          } else {
+            ussdInput = "Invalid selection. Please try again.";
+          }
+          break;
+
+        case "productAction":
+          if (userInput === "1") {
+            currentStep = "editProductName";
+            productAction = "edit";
+            ussdInput = `Edit name (current: ${retailerDetails.selectedProduct.product_name}):`;
+          } else if (userInput === "2") {
+            deleteProduct();
+          } else if (userInput === "3") {
+            currentStep = "productMenu";
+            showProductMenu();
+          } else {
+            ussdInput = "Invalid selection. Enter 1, 2 or 3.";
+          }
+          break;
+
+        case "editProductName":
+          retailerDetails.newProductName = userInput;
+          currentStep = "editProductPrice";
+          ussdInput = `Edit price (current: ${retailerDetails.selectedProduct.product_cost}):`;
+          break;
+
+        case "editProductPrice":
+          retailerDetails.newProductPrice = userInput;
+          updateProduct();
+          break;
+
+        default:
+          ussdInput = "Invalid state. Please restart.";
+          break;
+      }
+    }
+
+    function showProductMenu() {
+      ussdInput = "Product Management:\n1. Add Product\n2. View/Edit Products";
+      updateDisplay();
+    }
+
+    function registerRetailer() {
+      fetch("http://localhost:3001/api/retailers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(retailerDetails)
+      })
+        .then(response => response.json())
+        .then(data => {
+          currentRetailerId = data.retailerId; // Store the retailer ID
+          ussdInput = `Registration successful! Retailer ID: ${data.retailerId}`;
+          updateDisplay();
+          // Don't reset entirely - keep the ID
+          resetRetailerButKeepId();
+        })
+        .catch(err => {
+          ussdInput = "Error registering retailer.";
+          updateDisplay();
+          console.error(err);
+        });
+    }
+
+    // New function to reset retailer details but keep the ID
+    function resetRetailerButKeepId() {
+      currentStep = "retailerMenu";
+      currentInput = "";
+      retailerDetails = {
+        name: "",
+        phoneNumber: "",
+        location: "",
+        productName: "",
+        productPrice: "",
+        selectedProduct: null,
+        newProductName: "",
+        newProductPrice: ""
+      };
+      ussdInput = "Retailer Menu:\n1. Register\n2. Manage Products";
+      updateDisplay();
+    }
+
+    function fetchRetailerProducts() {
+      if (!currentRetailerId) {
+        ussdInput = "Please register first to manage products";
+        currentStep = "retailerMenu";
+        updateDisplay();
+        return;
+      }
+
+      fetch(`http://localhost:3001/api/retailers/${currentRetailerId}/products`)
+        .then(response => response.json())
+        .then(data => {
+          products = data;
+          if (products.length === 0) {
+            ussdInput = "No products found.\n1. Add Product\n2. Back";
+            currentStep = "productMenu";
+          } else {
+            ussdInput = "Select a product to manage:\n";
+            products.forEach((product, index) => {
+              ussdInput += `${index + 1}. ${product.product_name} - TSH ${product.product_cost}\n`;
+            });
+            currentStep = "listProducts";
+          }
+          updateDisplay();
+        })
+        .catch(err => {
+          ussdInput = "Error fetching products";
+          updateDisplay();
+          console.error(err);
+        });
+    }
+
+    function addProduct() {
+      if (!currentRetailerId) {
+        ussdInput = "Please register first to add products";
+        currentStep = "retailerMenu";
+        updateDisplay();
+        return;
+      }
+
+      fetch("http://localhost:3001/api/products", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: retailerDetails.productName,
+          price: retailerDetails.productPrice,
+          retailerId: currentRetailerId
+        })
+      })
+        .then(response => response.json())
+        .then(data => {
+          ussdInput = `Product added successfully! Product ID: ${data.productId}`;
+          updateDisplay();
+          resetRetailerButKeepId();
+        })
+        .catch(err => {
+          ussdInput = "Error adding product.";
+          updateDisplay();
+          console.error(err);
+        });
+    }
+
+    function updateProduct() {
+      fetch(`http://localhost:3001/api/products/${retailerDetails.selectedProduct.product_id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: retailerDetails.newProductName,
+          price: retailerDetails.newProductPrice
+        })
+      })
+        .then(response => response.json())
+        .then(data => {
+          ussdInput = `Product updated successfully!`;
+          updateDisplay();
+          resetRetailerButKeepId();
+        })
+        .catch(err => {
+          ussdInput = "Error updating product.";
+          updateDisplay();
+          console.error(err);
+        });
+    }
+
+    function deleteProduct() {
+      fetch(`http://localhost:3001/api/products/${retailerDetails.selectedProduct.product_id}`, {
+        method: "DELETE"
+      })
+        .then(response => response.json())
+        .then(data => {
+          ussdInput = `Product deleted successfully!`;
+          updateDisplay();
+          resetRetailerButKeepId();
+        })
+        .catch(err => {
+          ussdInput = "Error deleting product.";
+          updateDisplay();
+          console.error(err);
+        });
+    }
+
+    function resetRetailer() {
+      currentStep = "start";
+      userRole = null;
+      currentInput = "";
+      currentRetailerId = null; // Clear retailer ID
+      retailerDetails = {
+        name: "",
+        phoneNumber: "",
+        location: "",
+        productName: "",
+        productPrice: "",
+        selectedProduct: null,
+        newProductName: "",
+        newProductPrice: ""
+      };
+    }
+
+    // Add keyboard support
+    document.addEventListener('keydown', function (event) {
+      const key = event.key;
+
+      if (key >= '0' && key <= '9') {
+        cycleInput(key);
+      } else if (key === '*') {
+        cycleInput('*');
+      } else if (key === '#') {
+        cycleInput('#');
+      } else if (key === ' ') {
+        cycleInput(' ');
+      } else if (key === 'Backspace' || key === 'Delete') {
+        deleteInput();
+      } else if (key === 'Enter') {
+        sendInput();
+      } else if (key === 'Escape') {
+        goBack();
+      }
+    });
+
+    // Initialize
+    updateDisplay();
+  </script>
+</body>
+
+</html>
